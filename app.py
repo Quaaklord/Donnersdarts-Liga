@@ -47,7 +47,7 @@ def init_db():
 
 
 def extract_match_id(url_or_id: str) -> str:
-    """Extrahiert die Match-UUID aus einem Autodarts-Link oder Text."""
+    """Extrahiert die Match-UUID aus einem Autodarts-Link (.io / .com) oder Text."""
     uuid_pattern = (
         r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"
     )
@@ -203,11 +203,17 @@ with st.sidebar:
         if match_input:
             try:
                 m_id = extract_match_id(match_input)
-                res = requests.get(
-                    f"https://api.autodarts.io/ms/v1/matches/{m_id}",
-                    headers={
-                        "User-Agent": (
-                            "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
+
+# Neue API-URL mit .com verwenden
+res = requests.get(
+    f"https://api.autodarts.com/ms/v1/matches/{m_id}",
+    headers={
+        "User-Agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+        )
+    },
+    timeout=10,
+)
                         )
                     },
                 )
