@@ -196,26 +196,22 @@ with st.sidebar:
     st.header("Match Importieren")
     match_input = st.text_input(
         "Autodarts Match-Link oder ID:",
-        placeholder="https://play.autodarts.io/...",
+        placeholder="https://play.autodarts.com/...",
     )
 
     if st.button("Spiel Speichern", type="primary"):
         if match_input:
             try:
                 m_id = extract_match_id(match_input)
-
-# Neue API-URL mit .com verwenden
-res = requests.get(
-    f"https://api.autodarts.com/ms/v1/matches/{m_id}",
-    headers={
-        "User-Agent": (
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
-        )
-    },
-    timeout=10,
-)
+                # Aktualisierte API-URL auf .com gesetzt
+                res = requests.get(
+                    f"https://api.autodarts.com/ms/v1/matches/{m_id}",
+                    headers={
+                        "User-Agent": (
+                            "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
                         )
                     },
+                    timeout=10,
                 )
                 if res.status_code == 200:
                     save_match_to_db(res.json())
@@ -223,7 +219,7 @@ res = requests.get(
                     st.rerun()
                 else:
                     st.error(
-                        "Match konnte nicht von Autodarts abgerufen werden."
+                        f"Match konnte nicht abgerufen werden (Statuscode {res.status_code})."
                     )
             except Exception as e:
                 st.error(f"Fehler: {e}")
