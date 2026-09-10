@@ -160,11 +160,9 @@ init_db()
 st.set_page_config(page_title="Autodarts Liga", page_icon="🎯", layout="wide")
 st.title("🎯 Autodarts Liga-Dashboard")
 
-# Sicherer Zugriff / Initialisierung auf den Session State
 if "ad_token" not in st.session_state:
     st.session_state["ad_token"] = ""
 
-# Seitenleiste zum Importieren
 with st.sidebar:
     st.header("🔑 Autodarts Token")
     
@@ -193,40 +191,24 @@ with st.sidebar:
                 m_id = extract_match_id(match_input)
                 headers = {
                     "Authorization": f"Bearer {active_token}",
-                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
+                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
+                    "Accept": "application/json"
                 }
 
-                endpoints = [
-                    f"https://api.autodarts.com/as/v1/matches/{m_id}",
-                    f"https://api.autodarts.com/as/v0/matches/{m_id}",
-                    f"https://api.autodarts.com/ms/v1/matches/{m_id}"
-                ]
-
-                match_data = None
-                used_url = ""
-                last_status = 404
-
-                for url in endpoints:
-                    res = requests.get(url, headers=headers, timeout=5)
-                    if res.status_code == 200:
-                        match_data = res.json()
-                        used_url = url
-                        break
-                    else:
-                        last_status = res.status_code
-
-                if match_data:
-                    st.info(f"API-Daten geladen von: `{used_url}`")
-                    st.json(match_data) # Zeigt uns die Rohdaten zur Kontrolle
-
+                # Hier wird der Hauptendpunkt direkt angesprochen
+                url = f"https://api.autodarts.com/matches/{m_id}"
+                
+                res = requests.get(url, headers=headers, timeout=5)
+                
+                if res.status_code == 200:
+                    match_data = res.json()
+                    st.json(match_data) # Debug: Zeigt die Daten kurz an
                     save_match_to_db(match_data)
-                    st.success("✓ Spiel eingetragen!")
+                    st.success("✓ Spiel inkl. Stats eingetragen!")
                     st.rerun()
                 else:
-                    if last_status == 401:
-                        st.error("Token ist abgelaufen oder ungültig.")
-                    else:
-                        st.error(f"Match konnte nicht abgerufen werden (Status {last_status}).")
+                    st.error(f"Fehler: Server antwortete mit Statuscode {res.status_code}. Details: {res.text[:150]}")
+
             except Exception as e:
                 st.error(f"Fehler beim Import: {e}")
 
