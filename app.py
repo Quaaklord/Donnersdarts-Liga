@@ -47,9 +47,8 @@ def init_db():
 
 
 def get_autodarts_token(email: str, password: str) -> str:
-    """Holt ein Bearer Token von Autodarts über die offizielle Keycloak-Schnittstelle."""
-    # Der offizielle SSO-Keycloak-Endpunkt von Autodarts
-    token_url = "https://keycloak.autodarts.io/realms/autodarts/protocol/openid-connect/token"
+    """Holt ein Bearer Token direkt über die aktuelle Autodarts Auth API."""
+    token_url = "https://api.autodarts.com/auth/v1/token"
 
     payload = {
         "client_id": "autodarts-app",
@@ -67,10 +66,11 @@ def get_autodarts_token(email: str, password: str) -> str:
     try:
         res = requests.post(token_url, data=payload, headers=headers, timeout=15)
         if res.status_code == 200:
-            return res.json().get("access_token")
-        elif res.status_code == 401:
+            data = res.json()
+            return data.get("access_token") or data.get("token")
+        elif res.status_code in (400, 401):
             raise Exception(
-                "Anmeldung fehlgeschlagen: E-Mail oder Passwort falsch."
+                "Anmeldung fehlgeschlagen: E-Mail oder Passwort ist falsch."
             )
         else:
             raise Exception(
@@ -78,7 +78,7 @@ def get_autodarts_token(email: str, password: str) -> str:
             )
     except requests.exceptions.Timeout:
         raise Exception(
-            "Zeitüberschreitung (Timeout) beim Verbindungsaufbau zu Keycloak."
+            "Zeitüberschreitung (Timeout) beim Verbindungsaufbau zu Autodarts."
         )
     except Exception as e:
         raise Exception(f"Login-Fehler: {e}")
