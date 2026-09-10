@@ -49,10 +49,17 @@ def init_db():
 import requests
 
 
+import requests
+
+
 def get_autodarts_token(email: str, password: str) -> str:
-    """Holt ein Bearer Token vom offiziellen Autodarts Keycloak-Server."""
-    # Das ist die finale Keycloak Token-URL für Autodarts
-    token_url = "https://auth.autodarts.io/realms/autodarts/protocol/openid-connect/token"
+    """Holt ein Bearer Token von den aktuellen .com-Endpunkten von Autodarts."""
+    # Priorisiere die neuen .com-Subdomains von Autodarts
+    token_urls = [
+        "https://auth.autodarts.com/realms/autodarts/protocol/openid-connect/token",
+        "https://login.autodarts.com/realms/autodarts/protocol/openid-connect/token",
+        "https://api.autodarts.com/ms/auth/v1/login",  # Alternative API-Route
+    ]
 
     payload = {
         "client_id": "autodarts-app",
@@ -60,6 +67,7 @@ def get_autodarts_token(email: str, password: str) -> str:
         "username": email.strip(),
         "password": password,
     }
+
     headers = {
         "Content-Type": "application/x-www-form-urlencoded",
         "User-Agent": (
@@ -67,29 +75,41 @@ def get_autodarts_token(email: str, password: str) -> str:
         ),
     }
 
-    try:
-        # data=payload sorgt in requests für das korrekte URL-Encoding
-        res = requests.post(
-            token_url, data=payload, headers=headers, timeout=15
-        )
+    last_error = ""
 
-        if res.status_code == 200:
-            return res.json().get("access_token")
-        elif res.status_code in (400, 401):
-            raise Exception(
-                "E-Mail oder Passwort ist falsch (oder Social-Login wie Google/Discord wird genutzt)."
-            )
-        else:
-            raise Exception(
-                f"Server-Fehler {res.status_code}: {res.text[:100]}"
-            )
+    for url in token_urls:
+        try:
+            res = requests.post(url, data=payload, headers=headers, timeout=15)
 
-    except requests.exceptions.Timeout:
-        raise Exception(
-            "Zeitüberschreitung beim Verbindungsaufbau zu Autodarts."
-        )
-    except Exception as e:
-        raise Exception(f"Login-Fehler: {e}")
+            if res.status_code == 200:
+                data = res.json()
+                # Rückgabe für Keycloak OAuth (access_token) oder Auth API (token)
+                return (
+                    data.get("access_token")
+                    or data.get("token")
+                    or data.get("accessToken")
+                )
+
+            elif res.status_code in (400, 401):
+                raise Exception(
+                    "Anmeldung fehlgeschlagen: E-Mail oder Passwort ist falsch."
+                )
+
+            else:
+                last_error = (
+                    f"HTTP {res.status_code} bei {url}: {res.text[:80]}"
+                )
+
+        except requests.exceptions.RequestException as e:
+            last_error = f"Verbindungsfehler bei {url}: {str(e)}"
+            continue
+        except Exception as e:
+            raise e
+
+    raise Exception(
+        f"Login fehlgeschlagen. Letzter Fehler: {last_error}"
+    )
+    
 def extract_match_id(url_or_id: str) -> str:
     """Extrahiert die Match-UUID aus einem Autodarts-Link (.io / .com) oder Text."""
     uuid_pattern = (
