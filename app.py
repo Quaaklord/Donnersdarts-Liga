@@ -4,12 +4,10 @@ import pandas as pd
 import requests
 import streamlit as st
 
-# --- DATENBANK & CONFIG LOGIK ---
+# --- DATENBANK LOGIK ---
 DB_PATH = "autodarts_league.db"
 
-
 def init_db():
-    """Initialisiert die SQLite-Tabellen für Spiele und Statistiken."""
     with sqlite3.connect(DB_PATH) as conn:
         cursor = conn.cursor()
         cursor.execute("""
@@ -45,107 +43,14 @@ def init_db():
         """)
         conn.commit()
 
-
-import requests
-
-
-import requests
-
-
-import requests
-
-
-import requests
-
-
-def get_autodarts_token(email: str, password: str) -> str:
-    """Versucht die Authentifizierung erst über den primären Autodarts OIDC-Endpunkt,
-
-    dann als Fallback über Auth0.
-    """
-    email_clean = email.strip()
-
-    # --- Weg 1: Autodarts Keycloak / OIDC (Aktueller Standard) ---
-    oidc_url = (
-        "https://auth.autodarts.io/realms/autodarts/protocol/openid-connect/token"
-    )
-    oidc_payload = {
-        "client_id": "autodarts-app",
-        "grant_type": "password",
-        "username": email_clean,
-        "password": password,
-        "scope": "openid profile email",
-    }
-    headers_form = {
-        "Content-Type": "application/x-www-form-urlencoded",
-        "User-Agent": (
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
-        ),
-    }
-
-    try:
-        res = requests.post(
-            oidc_url, data=oidc_payload, headers=headers_form, timeout=10
-        )
-        if res.status_code == 200:
-            return res.json().get("access_token")
-    except Exception:
-        pass  # Bei Fehlschlag Fallback auf Auth0 probieren
-
-    # --- Weg 2: Auth0 Direct Grant (Fallback) ---
-    auth0_url = "https://autodarts.eu.auth0.com/oauth/token"
-    auth0_payload = {
-        "grant_type": "password",
-        "username": email_clean,
-        "password": password,
-        "client_id": "L8m43i9K0f76Z638D7KjWwY1z3G269l4",
-        "audience": "https://api.autodarts.io",
-        "scope": "openid profile email",
-    }
-    headers_json = {
-        "Content-Type": "application/json",
-        "User-Agent": (
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
-        ),
-    }
-
-    try:
-        res = requests.post(
-            auth0_url, json=auth0_payload, headers=headers_json, timeout=10
-        )
-        if res.status_code == 200:
-            return res.json().get("access_token")
-        elif res.status_code in (400, 401, 403):
-            raise Exception(
-                "Anmeldung abgelehnt. Bitte überprüfe E-Mail und Passwort. "
-                "Falls du dich sonst per Google/Discord anmeldest, erstelle bitte auf autodarts.com über 'Passwort vergessen' ein Kennwort."
-            )
-        else:
-            raise Exception(
-                f"Server-Antwort {res.status_code}: {res.text[:100]}"
-            )
-    except requests.exceptions.Timeout:
-        raise Exception(
-            "Zeitüberschreitung beim Verbindungsaufbau zu Autodarts."
-        )
-    except Exception as e:
-        raise Exception(f"Login-Fehler: {e}")
-
-
-
 def extract_match_id(url_or_id: str) -> str:
-    """Extrahiert die Match-UUID aus einem Autodarts-Link (.io / .com) oder Text."""
-    uuid_pattern = (
-        r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"
-    )
+    uuid_pattern = r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"
     match = re.search(uuid_pattern, url_or_id, re.IGNORECASE)
     if match:
         return match.group(0)
     raise ValueError("Keine gültige Autodarts Match-ID gefunden.")
 
-
 def save_match_to_db(match_data: dict):
-    """Speichert Match-Ergebnisse und Spieler-Statistiken in SQLite."""
     match_id = match_data.get("id")
     variant = match_data.get("variant", "501")
     mode = match_data.get("mode", "Legs")
@@ -164,27 +69,13 @@ def save_match_to_db(match_data: dict):
     with sqlite3.connect(DB_PATH) as conn:
         cursor = conn.cursor()
         cursor.execute(
-            """
-            INSERT OR REPLACE INTO matches VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """,
-            (
-                match_id,
-                created_at,
-                variant,
-                mode,
-                p1_name,
-                p2_name,
-                p1_legs,
-                p2_legs,
-                winner,
-            ),
+            "INSERT OR REPLACE INTO matches VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (match_id, created_at, variant, mode, p1_name, p2_name, p1_legs, p2_legs, winner),
         )
 
         for idx, p in enumerate(players):
             p_name = p.get("name", f"Spieler {idx+1}")
-            p_stats = p.get("stats", {}) or (
-                stats_list[idx] if idx < len(stats_list) else {}
-            )
+            p_stats = p.get("stats", {}) or (stats_list[idx] if idx < len(stats_list) else {})
 
             ppd = p_stats.get("ppd", 0)
             avg_3dart = round(ppd * 3, 2) if ppd else 0.0
@@ -197,26 +88,14 @@ def save_match_to_db(match_data: dict):
                 INSERT OR REPLACE INTO match_stats 
                 (match_id, player_name, legs_won, sets_won, avg_3dart, first9_avg, checkout_pct, high_checkout, s100, s140, s180)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-                (
-                    match_id,
-                    p_name,
-                    p.get("legs", 0),
-                    p.get("sets", 0),
-                    avg_3dart,
-                    first9_avg,
-                    float(p_stats.get("checkoutPercent", 0)),
-                    int(p_stats.get("highCheckout", 0)),
-                    int(p_stats.get("s100", 0)),
-                    int(p_stats.get("s140", 0)),
-                    int(p_stats.get("s180", 0)),
-                ),
+                """,
+                (match_id, p_name, p.get("legs", 0), p.get("sets", 0), avg_3dart, first9_avg, 
+                 float(p_stats.get("checkoutPercent", 0)), int(p_stats.get("highCheckout", 0)), 
+                 int(p_stats.get("s100", 0)), int(p_stats.get("s140", 0)), int(p_stats.get("s180", 0))),
             )
         conn.commit()
 
-
 def get_league_table() -> pd.DataFrame:
-    """Berechnet die Ligatabelle inkl. 3-Punkte-Regel, Leg-Diff & direktem Vergleich."""
     query = """
         WITH player_stats AS (
             SELECT 
@@ -267,56 +146,43 @@ def get_league_table() -> pd.DataFrame:
     with sqlite3.connect(DB_PATH) as conn:
         return pd.read_sql_query(query, conn)
 
-
 # --- STREAMLIT BENUTZEROBERFLÄCHE ---
 init_db()
 
-st.set_page_config(
-    page_title="Autodarts Liga", page_icon="🎯", layout="wide"
-)
-
+st.set_page_config(page_title="Autodarts Liga", page_icon="🎯", layout="wide")
 st.title("🎯 Autodarts Liga-Dashboard")
 
 # Seitenleiste zum Importieren
 with st.sidebar:
-    st.header("🔑 Autodarts Login")
-    ad_email = st.text_input("E-Mail / Benutzername", type="default")
-    ad_password = st.text_input("Passwort", type="password")
+    st.header("🔑 Autodarts Token-Login")
+    st.markdown("Kopiere dein **Access Token** aus den Browser-DevTools (play.autodarts.com).")
+    ad_token = st.text_input("Bearer Token", type="password")
 
     st.markdown("---")
     st.header("Match Importieren")
-    match_input = st.text_input(
-        "Autodarts Match-Link oder ID:",
-        placeholder="https://play.autodarts.com/...",
-    )
+    match_input = st.text_input("Autodarts Match-Link (.com) oder ID:", placeholder="https://play.autodarts.com/...")
 
     if st.button("Spiel Speichern", type="primary"):
-        if not ad_email or not ad_password:
-            st.warning("Bitte oben E-Mail und Passwort eingeben.")
+        if not ad_token:
+            st.warning("Bitte oben dein Token einfügen.")
         elif not match_input:
             st.warning("Bitte einen Link oder eine ID eingeben.")
         else:
             try:
-                # 1. Access Token holen
-                token = get_autodarts_token(ad_email, ad_password)
                 m_id = extract_match_id(match_input)
-
                 headers = {
-                    "Authorization": f"Bearer {token}",
-                    "User-Agent": (
-                        "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
-                    ),
+                    "Authorization": f"Bearer {ad_token}",
+                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
                 }
 
+                # Ausschliesslich .com Endpunkte!
                 endpoints = [
-                    f"https://api.autodarts.io/ms/v1/matches/{m_id}",
                     f"https://api.autodarts.com/ms/v1/matches/{m_id}",
-                    f"https://api.autodarts.io/as/v0/matches/{m_id}",
-                    f"https://api.autodarts.com/as/v0/matches/{m_id}",
+                    f"https://api.autodarts.com/as/v0/matches/{m_id}"
                 ]
 
                 match_data = None
-                last_status = 401
+                last_status = 404
 
                 for url in endpoints:
                     res = requests.get(url, headers=headers, timeout=5)
@@ -331,19 +197,18 @@ with st.sidebar:
                     st.success("✓ Spiel erfolgreich eingetragen!")
                     st.rerun()
                 else:
-                    st.error(
-                        f"Match konnte nicht abgerufen werden (Statuscode {last_status})."
-                    )
+                    if last_status == 401:
+                        st.error("Token ist abgelaufen oder ungültig. Bitte ein neues Token aus dem Browser kopieren.")
+                    else:
+                        st.error(f"Match konnte nicht abgerufen werden (Status {last_status}).")
             except Exception as e:
                 st.error(f"Fehler: {e}")
 
-# Hauptbereich mit Tabellen und Highlights
 st.subheader("📊 Aktuelle Ligatabelle")
 df = get_league_table()
 
 if not df.empty:
     st.dataframe(df, use_container_width=True, hide_index=True)
-
     st.markdown("---")
     st.subheader("⭐ Liga-Highlights")
     col1, col2, col3 = st.columns(3)
@@ -352,22 +217,8 @@ if not df.empty:
     most_180s_row = df.loc[df["180er"].idxmax()]
     high_co_row = df.loc[df["High Checkout"].idxmax()]
 
-    col1.metric(
-        "Höchster Turnier-Average",
-        f"{best_avg_row['Ø Average']}",
-        best_avg_row["Spieler"],
-    )
-    col2.metric(
-        "Meiste 180er",
-        f"{most_180s_row['180er']}x",
-        most_180s_row["Spieler"],
-    )
-    col3.metric(
-        "Höchstes Checkout",
-        f"{high_co_row['High Checkout']}",
-        high_co_row["Spieler"],
-    )
+    col1.metric("Höchster Turnier-Average", f"{best_avg_row['Ø Average']}", best_avg_row["Spieler"])
+    col2.metric("Meiste 180er", f"{most_180s_row['180er']}x", most_180s_row["Spieler"])
+    col3.metric("Höchstes Checkout", f"{high_co_row['High Checkout']}", high_co_row["Spieler"])
 else:
-    st.info(
-        "Noch keine Spiele in der Datenbank vorhanden. Logge dich links ein und trage ein Match ein!"
-    )
+    st.info("Noch keine Spiele in der Datenbank vorhanden.")
