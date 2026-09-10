@@ -1,7 +1,6 @@
-import re
+import json
 import sqlite3
 import pandas as pd
-import requests
 import streamlit as st
 
 # --- DATENBANK LOGIK ---
@@ -43,15 +42,11 @@ def init_db():
         """)
         conn.commit()
 
-def extract_match_id(url_or_id: str) -> str:
-    uuid_pattern = r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"
-    match = re.search(uuid_pattern, url_or_id, re.IGNORECASE)
-    if match:
-        return match.group(0)
-    raise ValueError("Keine gültige Autodarts Match-ID gefunden.")
-
 def save_match_to_db(match_data: dict):
     match_id = match_data.get("id")
+    if not match_id:
+        return  # Überspringen, falls keine ID vorhanden ist
+
     variant = match_data.get("variant", "501")
     mode = match_data.get("mode", "Legs")
     created_at = match_data.get("createdAt", "")
@@ -160,73 +155,28 @@ init_db()
 st.set_page_config(page_title="Autodarts Liga", page_icon="🎯", layout="wide")
 st.title("🎯 Autodarts Liga-Dashboard")
 
-if "ad_token" not in st.session_state:
-    st.session_state["ad_token"] = ""
-
 with st.sidebar:
-    st.header("🔑 Autodarts Token")
+    st.header("📂 Match JSON Upload")
+    st.markdown("Lade die exportierte Match-Datei von Autodarts hoch.")
     
-    token_input = st.text_input(
-        "Bearer Token", 
-        value=st.session_state.get("ad_token", ""), 
-        type="password",
-        help="Einmalig aus den Browser-DevTools (play.autodarts.com) kopieren."
-    )
-    
-    if token_input != st.session_state.get("ad_token", ""):
-        st.session_state["ad_token"] = token_input
+    uploaded_file = st.file_uploader("Match-Daten (.json)", type=["json"])
 
-    st.markdown("---")
-    st.header("Match Importieren")
-    match_input = st.text_input("Autodarts Match-Link (.com) oder ID:", placeholder="https://play.autodarts.com/...")
-
-    if st.button("Spiel Speichern", type="primary"):
-        active_token = st.session_state.get("ad_token", "")
-        if not active_token:
-            st.warning("Bitte erst oben dein Token eingeben.")
-        elif not match_input:
-            st.warning("Bitte einen Link oder eine ID eingeben.")
-        else:
-            try:
-                m_id = extract_match_id(match_input)
-                headers = {
-                    "Authorization": f"Bearer {active_token}",
-                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
-                    "Accept": "application/json"
-                }
-
-                # Nur noch valide api.autodarts.com Endpunkte prüfen
-                endpoints = [
-                    f"https://api.autodarts.com/as/v0/matches/{m_id}",
-                    f"https://api.autodarts.com/as/v1/matches/{m_id}",
-                    f"https://api.autodarts.com/ms/v1/matches/{m_id}",
-                    f"https://api.autodarts.com/matches/{m_id}"
-                ]
-
-                match_data = None
-                used_url = ""
-                last_status = 404
-
-                for url in endpoints:
-                    res = requests.get(url, headers=headers, timeout=5)
-                    if res.status_code == 200:
-                        match_data = res.json()
-                        used_url = url
-                        break
-                    else:
-                        last_status = res.status_code
-
-                if match_data:
-                    st.info(f"Erfolg! Daten geladen von: `{used_url}`")
-                    st.json(match_data)
-                    save_match_to_db(match_data)
-                    st.success("✓ Spiel inkl. Stats erfolgreich eingetragen!")
-                    st.rerun()
-                else:
-                    st.error(f"Match konnte über keinen Endpunkt abgerufen werden. Letzter Status: {last_status}")
-
-            except Exception as e:
-                st.error(f"Fehler beim Import: {e}")
+    if uploaded_file is not None:
+        try:
+            match_data = json.load(uploaded_file)
+            
+            # Unterstützt sowohl einzelne Match-Objekte als auch Listen von Matches
+            if isinstance(match_data, list):
+                for m in match_data:
+                    save_match_to_db(m)
+                st.success(f"✓ {len(match_data)} Spiele erfolgreich eingetragen!")
+            elif isinstance(match_data, dict):
+                save_match_to_db(match_data)
+                st.success("✓ Spiel inkl. Stats erfolgreich eingetragen!")
+            
+            st.rerun()
+        except Exception as e:
+            st.error(f"Fehler beim Verarbeiten der Datei: {e}")
 
 st.subheader("📊 Aktuelle Ligatabelle")
 df = get_league_table()
@@ -245,4 +195,4 @@ if not df.empty:
     col2.metric("Meiste 180er", f"{most_180s_row['180er']}x", most_180s_row["Spieler"])
     col3.metric("Höchstes Checkout", f"{high_co_row['High Checkout']}", high_co_row["Spieler"])
 else:
-    st.info("Noch keine Spiele in der Datenbank vorhanden.")
+    st.info("Noch keine Spiele in der Datenbank vorhanden. Lade links deine Match-JSON-Datei hoch.")
