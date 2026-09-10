@@ -71,7 +71,7 @@ def save_match_to_db(match_data: dict):
     p1_name, p1_legs = p1.get("name", "Spieler 1"), p1.get("legs", 0)
     p2_name, p2_legs = p2.get("name", "Spieler 2"), p2.get("legs", 0)
 
-    # Es gibt nur einen Sieger (3 Punkte), kein Unentschieden
+    # Sieger bekommt 3 Punkte, kein Unentschieden
     winner = p1_name if p1_legs > p2_legs else p2_name
     stats_list = match_data.get("stats", [])
 
@@ -203,23 +203,38 @@ with st.sidebar:
         if match_input:
             try:
                 m_id = extract_match_id(match_input)
-                # Aktualisierte API-URL auf .com gesetzt
-                res = requests.get(
+                headers = {
+                    "User-Agent": (
+                        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+                    )
+                }
+
+                # Fallback-Liste für Autodarts API-Endpunkte
+                endpoints = [
+                    f"https://api.autodarts.io/ms/v1/matches/{m_id}",
                     f"https://api.autodarts.com/ms/v1/matches/{m_id}",
-                    headers={
-                        "User-Agent": (
-                            "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
-                        )
-                    },
-                    timeout=10,
-                )
-                if res.status_code == 200:
-                    save_match_to_db(res.json())
+                    f"https://api.autodarts.io/as/v0/matches/{m_id}",
+                    f"https://api.autodarts.com/as/v0/matches/{m_id}",
+                ]
+
+                match_data = None
+                last_status = 404
+
+                for url in endpoints:
+                    res = requests.get(url, headers=headers, timeout=5)
+                    if res.status_code == 200:
+                        match_data = res.json()
+                        break
+                    else:
+                        last_status = res.status_code
+
+                if match_data:
+                    save_match_to_db(match_data)
                     st.success("✓ Spiel erfolgreich eingetragen!")
                     st.rerun()
                 else:
                     st.error(
-                        f"Match konnte nicht abgerufen werden (Statuscode {res.status_code})."
+                        f"Match konnte nicht abgerufen werden (Statuscode {last_status}). Bitte überprüfe, ob die Match-ID korrekt ist."
                     )
             except Exception as e:
                 st.error(f"Fehler: {e}")
