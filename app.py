@@ -173,20 +173,19 @@ with st.sidebar:
     match_input = st.text_input("Autodarts Match-Link (.com) oder ID:", placeholder="https://play.autodarts.com/...")
 
     if st.button("Spiel Speichern", type="primary"):
-        if not ad_token:
-            st.warning("Bitte oben dein Token einfügen.")
+        active_token = st.session_state.ad_token
+        if not active_token:
+            st.warning("Bitte erst oben dein Token eingeben.")
         elif not match_input:
             st.warning("Bitte einen Link oder eine ID eingeben.")
         else:
             try:
                 m_id = extract_match_id(match_input)
                 headers = {
-                    "Authorization": f"Bearer {ad_token}",
+                    "Authorization": f"Bearer {active_token}",
                     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
                 }
 
-                # WICHTIG: Wir fragen zuerst den Analytics-Service (as) ab! 
-                # Nur dieser liefert die vollständigen Statistiken.
                 endpoints = [
                     f"https://api.autodarts.com/as/v1/matches/{m_id}",
                     f"https://api.autodarts.com/as/v0/matches/{m_id}",
@@ -194,23 +193,28 @@ with st.sidebar:
                 ]
 
                 match_data = None
+                used_url = ""
                 last_status = 404
 
                 for url in endpoints:
                     res = requests.get(url, headers=headers, timeout=5)
                     if res.status_code == 200:
                         match_data = res.json()
+                        used_url = url
                         break
                     else:
                         last_status = res.status_code
 
                 if match_data:
+                    # DEBUG-ANZEIGE: Zeigt dir kurz an, was die API geliefert hat
+                    st.info(f"API-Daten erfolgreich geladen von: `{used_url}`")
+                    st.json(match_data) # <--- Hier siehst du die rohen Daten
+
                     save_match_to_db(match_data)
-                    st.success("✓ Spiel inkl. Statistiken erfolgreich eingetragen!")
-                    st.rerun()
+                    st.success("✓ Spiel eingetragen!")
                 else:
                     if last_status == 401:
-                        st.error("Token ist abgelaufen oder ungültig. Bitte ein neues Token aus dem Browser kopieren.")
+                        st.error("Token ist abgelaufen oder ungültig.")
                     else:
                         st.error(f"Match konnte nicht abgerufen werden (Status {last_status}).")
             except Exception as e:
