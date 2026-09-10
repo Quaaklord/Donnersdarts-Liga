@@ -4,7 +4,7 @@ import pandas as pd
 import requests
 import streamlit as st
 
-# --- DATENBANK & API LOGIK ---
+# --- DATENBANK & CONFIG LOGIK ---
 DB_PATH = "autodarts_league.db"
 
 
@@ -46,6 +46,26 @@ def init_db():
         conn.commit()
 
 
+def get_autodarts_token(email: str, password: str) -> str:
+    """Holt ein Bearer Token von Autodarts via Keycloak OAuth2."""
+    token_url = "https://login.autodarts.io/realms/autodarts/protocol/openid-connect/token"
+    payload = {
+        "client_id": "autodarts-app",
+        "grant_type": "password",
+        "username": email,
+        "password": password,
+    }
+    headers = {"Content-Type": "application/x-www-form-urlencoded"}
+
+    res = requests.post(token_url, data=payload, headers=headers, timeout=10)
+    if res.status_code == 200:
+        return res.json().get("access_token")
+    else:
+        raise Exception(
+            f"Anmeldung fehlgeschlagen (Status {res.status_code}). Bitte E-Mail & Passwort prüfen."
+        )
+
+
 def extract_match_id(url_or_id: str) -> str:
     """Extrahiert die Match-UUID aus einem Autodarts-Link (.io / .com) oder Text."""
     uuid_pattern = (
@@ -71,7 +91,6 @@ def save_match_to_db(match_data: dict):
     p1_name, p1_legs = p1.get("name", "Spieler 1"), p1.get("legs", 0)
     p2_name, p2_legs = p2.get("name", "Spieler 2"), p2.get("legs", 0)
 
-    # Sieger bekommt 3 Punkte, kein Unentschieden
     winner = p1_name if p1_legs > p2_legs else p2_name
     stats_list = match_data.get("stats", [])
 
@@ -193,6 +212,11 @@ st.title("🎯 Autodarts Liga-Dashboard")
 
 # Seitenleiste zum Importieren
 with st.sidebar:
+    st.header("🔑 Autodarts Login")
+    ad_email = st.text_input("E-Mail / Benutzername", type="default")
+    ad_password = st.text_input("Passwort", type="password")
+
+    st.markdown("---")
     st.header("Match Importieren")
     match_input = st.text_input(
         "Autodarts Match-Link oder ID:",
@@ -200,16 +224,23 @@ with st.sidebar:
     )
 
     if st.button("Spiel Speichern", type="primary"):
-        if match_input:
+        if not ad_email or not ad_password:
+            st.warning("Bitte oben E-Mail und Passwort eingeben.")
+        elif not match_input:
+            st.warning("Bitte einen Link oder eine ID eingeben.")
+        else:
             try:
+                # 1. Access Token holen
+                token = get_autodarts_token(ad_email, ad_password)
                 m_id = extract_match_id(match_input)
+
                 headers = {
+                    "Authorization": f"Bearer {token}",
                     "User-Agent": (
-                        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
-                    )
+                        "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
+                    ),
                 }
 
-                # Fallback-Liste für Autodarts API-Endpunkte
                 endpoints = [
                     f"https://api.autodarts.io/ms/v1/matches/{m_id}",
                     f"https://api.autodarts.com/ms/v1/matches/{m_id}",
@@ -218,7 +249,7 @@ with st.sidebar:
                 ]
 
                 match_data = None
-                last_status = 404
+                last_status = 401
 
                 for url in endpoints:
                     res = requests.get(url, headers=headers, timeout=5)
@@ -234,12 +265,10 @@ with st.sidebar:
                     st.rerun()
                 else:
                     st.error(
-                        f"Match konnte nicht abgerufen werden (Statuscode {last_status}). Bitte überprüfe, ob die Match-ID korrekt ist."
+                        f"Match konnte nicht abgerufen werden (Statuscode {last_status})."
                     )
             except Exception as e:
                 st.error(f"Fehler: {e}")
-        else:
-            st.warning("Bitte einen Link oder eine ID eingeben.")
 
 # Hauptbereich mit Tabellen und Highlights
 st.subheader("📊 Aktuelle Ligatabelle")
@@ -273,5 +302,5 @@ if not df.empty:
     )
 else:
     st.info(
-        "Noch keine Spiele in der Datenbank vorhanden. Trage links in der Seitenleiste ein Match ein!"
+        "Noch keine Spiele in der Datenbank vorhanden. Logge dich links ein und trage ein Match ein!"
     )
