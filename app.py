@@ -47,11 +47,9 @@ def init_db():
 
 
 def get_autodarts_token(email: str, password: str) -> str:
-    """Holt ein Bearer Token von Autodarts via Keycloak OAuth2 mit Fallback-URLs."""
-    login_urls = [
-        "https://login.autodarts.com/realms/autodarts/protocol/openid-connect/token",
-        "https://login.autodarts.io/realms/autodarts/protocol/openid-connect/token",
-    ]
+    """Holt ein Bearer Token von Autodarts über die offizielle Keycloak-Schnittstelle."""
+    # Der offizielle SSO-Keycloak-Endpunkt von Autodarts
+    token_url = "https://keycloak.autodarts.io/realms/autodarts/protocol/openid-connect/token"
 
     payload = {
         "client_id": "autodarts-app",
@@ -66,29 +64,24 @@ def get_autodarts_token(email: str, password: str) -> str:
         ),
     }
 
-    last_error = ""
-    for url in login_urls:
-        try:
-            # Timeout auf 20 Sekunden erhöht
-            res = requests.post(
-                url, data=payload, headers=headers, timeout=20
+    try:
+        res = requests.post(token_url, data=payload, headers=headers, timeout=15)
+        if res.status_code == 200:
+            return res.json().get("access_token")
+        elif res.status_code == 401:
+            raise Exception(
+                "Anmeldung fehlgeschlagen: E-Mail oder Passwort falsch."
             )
-            if res.status_code == 200:
-                return res.json().get("access_token")
-            elif res.status_code == 401:
-                raise Exception(
-                    "Anmeldung fehlgeschlagen: E-Mail oder Passwort falsch."
-                )
-        except requests.exceptions.Timeout:
-            last_error = "Zeitüberschreitung (Timeout) beim Verbindungsaufbau."
-            continue
-        except Exception as e:
-            last_error = str(e)
-            continue
-
-    raise Exception(
-        f"Login konnte nicht durchgeführt werden. Details: {last_error}"
-    )
+        else:
+            raise Exception(
+                f"Server antwortete mit Statuscode {res.status_code}."
+            )
+    except requests.exceptions.Timeout:
+        raise Exception(
+            "Zeitüberschreitung (Timeout) beim Verbindungsaufbau zu Keycloak."
+        )
+    except Exception as e:
+        raise Exception(f"Login-Fehler: {e}")
 
 def extract_match_id(url_or_id: str) -> str:
     """Extrahiert die Match-UUID aus einem Autodarts-Link (.io / .com) oder Text."""
