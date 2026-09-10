@@ -47,24 +47,48 @@ def init_db():
 
 
 def get_autodarts_token(email: str, password: str) -> str:
-    """Holt ein Bearer Token von Autodarts via Keycloak OAuth2."""
-    token_url = "https://login.autodarts.io/realms/autodarts/protocol/openid-connect/token"
+    """Holt ein Bearer Token von Autodarts via Keycloak OAuth2 mit Fallback-URLs."""
+    login_urls = [
+        "https://login.autodarts.com/realms/autodarts/protocol/openid-connect/token",
+        "https://login.autodarts.io/realms/autodarts/protocol/openid-connect/token",
+    ]
+
     payload = {
         "client_id": "autodarts-app",
         "grant_type": "password",
         "username": email,
         "password": password,
     }
-    headers = {"Content-Type": "application/x-www-form-urlencoded"}
+    headers = {
+        "Content-Type": "application/x-www-form-urlencoded",
+        "User-Agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+        ),
+    }
 
-    res = requests.post(token_url, data=payload, headers=headers, timeout=10)
-    if res.status_code == 200:
-        return res.json().get("access_token")
-    else:
-        raise Exception(
-            f"Anmeldung fehlgeschlagen (Status {res.status_code}). Bitte E-Mail & Passwort prüfen."
-        )
+    last_error = ""
+    for url in login_urls:
+        try:
+            # Timeout auf 20 Sekunden erhöht
+            res = requests.post(
+                url, data=payload, headers=headers, timeout=20
+            )
+            if res.status_code == 200:
+                return res.json().get("access_token")
+            elif res.status_code == 401:
+                raise Exception(
+                    "Anmeldung fehlgeschlagen: E-Mail oder Passwort falsch."
+                )
+        except requests.exceptions.Timeout:
+            last_error = "Zeitüberschreitung (Timeout) beim Verbindungsaufbau."
+            continue
+        except Exception as e:
+            last_error = str(e)
+            continue
 
+    raise Exception(
+        f"Login konnte nicht durchgeführt werden. Details: {last_error}"
+    )
 
 def extract_match_id(url_or_id: str) -> str:
     """Extrahiert die Match-UUID aus einem Autodarts-Link (.io / .com) oder Text."""
