@@ -252,3 +252,19 @@ if not df.empty:
     col3.metric("Höchstes Checkout", f"{high_co_row['High Checkout']}", high_co_row["Spieler"])
 else:
     st.info("Noch keine Spiele in der Datenbank vorhanden.")
+
+
+with st.sidebar:
+    st.markdown("---")
+    st.subheader("⚙️ Datenbank verwalten")
+    if st.button("🗑️ Alle Tabellenstände komplett löschen", type="secondary"):
+        import sqlite3
+        with sqlite3.connect("autodarts_league.db") as conn:
+            cursor = conn.cursor()
+            cursor.execute("DROP TABLE IF EXISTS match_stats")
+            cursor.execute("DROP TABLE IF EXISTS matches")
+            conn.commit()
+        # Auch den aktiven Leg-Zwischenstand im Session State leeren
+        st.session_state.match_legs = []
+        st.success("Alle Daten wurden gelöscht! Die App wird neu geladen...")
+        st.rerun()
