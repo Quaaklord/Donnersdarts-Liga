@@ -55,47 +55,50 @@ import requests
 import requests
 
 
+import requests
+
+
 def get_autodarts_token(email: str, password: str) -> str:
-    """Holt ein Bearer Token über den sauberen .com-Endpunkt von Autodarts."""
-    # Offizieller OAuth2 Token-Endpunkt auf .com
-    token_url = "https://auth.autodarts.com/realms/autodarts/protocol/openid-connect/token"
+    """Holt ein Access-Token über den echten Autodarts Auth0-Endpunkt."""
+    # Auth0 Token-Endpunkt von Autodarts
+    token_url = "https://autodarts.eu.auth0.com/oauth/token"
 
     payload = {
-        "client_id": "autodarts-app",
         "grant_type": "password",
         "username": email.strip(),
         "password": password,
+        "client_id": "L8m43i9K0f76Z638D7KjWwY1z3G269l4",  # Öffentliche Client-ID der Autodarts Web-App
+        "audience": "https://api.autodarts.io",  # Auth0 Audience für Autodarts API
         "scope": "openid profile email",
     }
 
     headers = {
-        "Content-Type": "application/x-www-form-urlencoded",
+        "Content-Type": "application/json",
         "User-Agent": (
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
         ),
     }
 
     try:
+        # Auth0 erwartet JSON als Body (json=payload)
         res = requests.post(
-            token_url, data=payload, headers=headers, timeout=15
+            token_url, json=payload, headers=headers, timeout=15
         )
 
         if res.status_code == 200:
             data = res.json()
             return data.get("access_token")
-
-        elif res.status_code in (400, 401):
+        elif res.status_code in (400, 401, 403):
             raise Exception(
-                "Anmeldung fehlgeschlagen: E-Mail oder Passwort falsch."
+                "Anmeldung abgelehnt: E-Mail oder Passwort falsch (oder Login via Google/Discord genutzt)."
             )
-
         else:
             raise Exception(
-                f"Server-Antwort {res.status_code}: {res.text[:100]}"
+                f"Auth0 Status {res.status_code}: {res.text[:100]}"
             )
 
     except requests.exceptions.Timeout:
-        raise Exception("Zeitüberschreitung beim Verbindungsaufbau.")
+        raise Exception("Zeitüberschreitung beim Verbindungsaufbau zu Auth0.")
     except Exception as e:
         raise Exception(f"Login-Fehler: {e}")
     
