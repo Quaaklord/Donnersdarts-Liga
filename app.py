@@ -64,16 +64,17 @@ with st.sidebar:
     st.markdown("---")
     st.subheader("Neues Leg hinzufügen")
     
+    # Gewinner außerhalb des Formulars bestimmen, damit der Verlierer live umschaltet
+    leg_winner = st.selectbox("Wer hat das Leg gewonnen?", [st.session_state.p1_name, st.session_state.p2_name])
+    loser_name = st.session_state.p2_name if leg_winner == st.session_state.p1_name else st.session_state.p1_name
+    
     with st.form("leg_form", clear_on_submit=True):
-        leg_winner = st.selectbox("Wer hat das Leg gewonnen?", [st.session_state.p1_name, st.session_state.p2_name])
-        
         col_d1, col_d2 = st.columns(2)
         with col_d1:
             darts_p1 = st.number_input(f"Darts {st.session_state.p1_name}", min_value=1, max_value=200, value=18)
         with col_d2:
             darts_p2 = st.number_input(f"Darts {st.session_state.p2_name}", min_value=1, max_value=200, value=18)
             
-        loser_name = st.session_state.p2_name if leg_winner == st.session_state.p1_name else st.session_state.p1_name
         loser_rest = st.number_input(f"Restpunkte Verlierer ({loser_name})", min_value=0, max_value=500, value=0)
         
         checkout_val = st.number_input("Checkout-Wert (des Gewinners)", min_value=2, max_value=170, value=40)
@@ -98,12 +99,24 @@ with st.sidebar:
             }
             st.session_state.match_legs.append(leg_data)
             st.success(f"Leg {len(st.session_state.match_legs)} hinzugefügt!")
+            st.rerun()
 
     if st.session_state.match_legs:
         st.markdown("---")
-        if st.button("🗑️ Alle Legs zurücksetzen"):
+        if st.button("🗑️ Aktuelle Legs zurücksetzen"):
             st.session_state.match_legs = []
             st.rerun()
+            
+    st.markdown("---")
+    if st.button("⚠️ Komplette Liga-Datenbank löschen"):
+        with sqlite3.connect(DB_PATH) as conn:
+            cursor = conn.cursor()
+            cursor.execute("DROP TABLE IF EXISTS match_stats")
+            cursor.execute("DROP TABLE IF EXISTS matches")
+            conn.commit()
+        st.session_state.match_legs = []
+        st.success("Datenbank zurückgesetzt!")
+        st.rerun()
 
 # Hauptbereich: Aktuelle Legs des laufenden Matches anzeigen & speichern
 st.subheader("📝 Aktuelles Match (Leg-Übersicht)")
@@ -252,19 +265,3 @@ if not df.empty:
     col3.metric("Höchstes Checkout", f"{high_co_row['High Checkout']}", high_co_row["Spieler"])
 else:
     st.info("Noch keine Spiele in der Datenbank vorhanden.")
-
-
-with st.sidebar:
-    st.markdown("---")
-    st.subheader("⚙️ Datenbank verwalten")
-    if st.button("🗑️ Alle Tabellenstände komplett löschen", type="secondary"):
-        import sqlite3
-        with sqlite3.connect("autodarts_league.db") as conn:
-            cursor = conn.cursor()
-            cursor.execute("DROP TABLE IF EXISTS match_stats")
-            cursor.execute("DROP TABLE IF EXISTS matches")
-            conn.commit()
-        # Auch den aktiven Leg-Zwischenstand im Session State leeren
-        st.session_state.match_legs = []
-        st.success("Alle Daten wurden gelöscht! Die App wird neu geladen...")
-        st.rerun()
