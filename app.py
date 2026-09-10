@@ -60,7 +60,6 @@ def save_match_to_db(match_data: dict):
     p1 = players[0] if len(players) > 0 else {}
     p2 = players[1] if len(players) > 1 else {}
 
-    # Autodarts nennt gewonnene Legs manchmal 'legs' und manchmal 'score'
     p1_name = p1.get("name", "Spieler 1")
     p1_legs = p1.get("legs", p1.get("score", 0))
     
@@ -87,7 +86,6 @@ def save_match_to_db(match_data: dict):
             f9_ppd = p_stats.get("first9Ppd", 0)
             first9_avg = round(f9_ppd * 3, 2) if f9_ppd else 0.0
 
-            # Fallbacks für unterschiedliche JSON-Benennungen
             s100 = int(p_stats.get("s100", p_stats.get("scores100s", 0)))
             s140 = int(p_stats.get("s140", p_stats.get("scores140s", 0)))
             s180 = int(p_stats.get("s180", p_stats.get("scores180s", 0)))
@@ -162,18 +160,30 @@ init_db()
 st.set_page_config(page_title="Autodarts Liga", page_icon="🎯", layout="wide")
 st.title("🎯 Autodarts Liga-Dashboard")
 
+# Sicherer Zugriff / Initialisierung auf den Session State
+if "ad_token" not in st.session_state:
+    st.session_state["ad_token"] = ""
+
 # Seitenleiste zum Importieren
 with st.sidebar:
-    st.header("🔑 Autodarts Token-Login")
-    st.markdown("Kopiere dein **Access Token** aus den Browser-DevTools (play.autodarts.com).")
-    ad_token = st.text_input("Bearer Token", type="password")
+    st.header("🔑 Autodarts Token")
+    
+    token_input = st.text_input(
+        "Bearer Token", 
+        value=st.session_state.get("ad_token", ""), 
+        type="password",
+        help="Einmalig aus den Browser-DevTools (play.autodarts.com) kopieren."
+    )
+    
+    if token_input != st.session_state.get("ad_token", ""):
+        st.session_state["ad_token"] = token_input
 
     st.markdown("---")
     st.header("Match Importieren")
     match_input = st.text_input("Autodarts Match-Link (.com) oder ID:", placeholder="https://play.autodarts.com/...")
 
     if st.button("Spiel Speichern", type="primary"):
-        active_token = st.session_state.ad_token
+        active_token = st.session_state.get("ad_token", "")
         if not active_token:
             st.warning("Bitte erst oben dein Token eingeben.")
         elif not match_input:
@@ -206,12 +216,12 @@ with st.sidebar:
                         last_status = res.status_code
 
                 if match_data:
-                    # DEBUG-ANZEIGE: Zeigt dir kurz an, was die API geliefert hat
-                    st.info(f"API-Daten erfolgreich geladen von: `{used_url}`")
-                    st.json(match_data) # <--- Hier siehst du die rohen Daten
+                    st.info(f"API-Daten geladen von: `{used_url}`")
+                    st.json(match_data) # Zeigt uns die Rohdaten zur Kontrolle
 
                     save_match_to_db(match_data)
                     st.success("✓ Spiel eingetragen!")
+                    st.rerun()
                 else:
                     if last_status == 401:
                         st.error("Token ist abgelaufen oder ungültig.")
