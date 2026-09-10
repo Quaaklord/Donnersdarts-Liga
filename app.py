@@ -1,4 +1,3 @@
-import json
 import sqlite3
 import pandas as pd
 import streamlit as st
@@ -42,96 +41,79 @@ def init_db():
         """)
         conn.commit()
 
-def save_match_to_db(match_data: dict):
-    match_id = match_data.get("id") or match_data.get("matchId")
-    if not match_id:
-        return
-
-    variant = match_data.get("variant", "501")
-    mode = match_data.get("mode", "Legs")
-    created_at = match_data.get("createdAt", match_data.get("date", ""))
-
-    players = match_data.get("players", [])
-    # Autodarts speichert Stats oft in einem eigenen Top-Level-Array "stats"
-    global_stats = match_data.get("stats", match_data.get("statistics", []))
-
-    p1 = players[0] if len(players) > 0 else {}
-    p2 = players[1] if len(players) > 1 else {}
-
-    p1_name = p1.get("name", p1.get("username", "Spieler 1"))
-    p2_name = p2.get("name", p2.get("username", "Spieler 2"))
-
-    p1_legs = p1.get("legs", p1.get("legsWon", p1.get("score", 0)))
-    p2_legs = p2.get("legs", p2.get("legsWon", p2.get("score", 0)))
-
-    winner = p1_name if p1_legs > p2_legs else p2_name
-
+def get_existing_players():
     with sqlite3.connect(DB_PATH) as conn:
         cursor = conn.cursor()
-        cursor.execute(
-            "INSERT OR REPLACE INTO matches VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            (match_id, created_at, variant, mode, p1_name, p2_name, p1_legs, p2_legs, winner),
-        )
+        cursor.execute("SELECT DISTINCT player_name FROM match_stats")
+        rows = cursor.fetchall()
+        return [r[0] for r in rows] if rows else ["the unfroggettable", "elkiki"]
 
-        for idx, p in enumerate(players):
-            p_name = p.get("name", p.get("username", f"Spieler {idx+1}"))
+# --- STREAMLIT BENUTZEROBERFLÄCHE ---
+init_db()
+
+st.set_page_config(page_title="Autodarts Liga", page_icon="🎯", layout="wide")
+st.title("🎯 Autodarts Liga-Dashboard")
+
+with st.sidebar:
+    st.header("✍️ Match manuell eintragen")
+    st.markdown("Bypass für das JSON-Chaos: Einfach schnell eintragen.")
+    
+    known_players = get_existing_players()
+    
+    with st.form("manual_match_form"):
+        col_p1, col_p2 = st.columns(2)
+        with col_p1:
+            p1_name = st.text_input("Spieler 1", value="the unfroggettable")
+            p1_legs = st.number_input("Legs P1", min_value=0, max_value=20, value=3)
+            p1_avg = st.number_input("Average P1", min_value=0.0, max_value=180.0, value=50.0, step=0.1)
+            p1_co = st.number_input("High CO P1", min_value=0, max_value=170, value=40)
+            p1_180 = st.number_input("180er P1", min_value=0, max_value=10, value=0)
             
-            # Statistiken aus verschiedenen möglichen Quellen im JSON zusammenklauben
-            p_stats = p.get("stats", p.get("statistics", {}))
-            if not p_stats and idx < len(global_stats):
-                p_stats = global_stats[idx]
+        with col_p2:
+            p2_name = st.text_input("Spieler 2", value="elkiki")
+            p2_legs = st.number_input("Legs P2", min_value=0, max_value=20, value=1)
+            p2_avg = st.number_input("Average P2", min_value=0.0, max_value=180.0, value=45.0, step=0.1)
+            p2_co = st.number_input("High CO P2", min_value=0, max_value=170, value=0)
+            p2_180 = st.number_input("180er P2", min_value=0, max_value=10, value=0)
 
-            # Falls stats eine Liste ist oder direkt dict
-            if isinstance(p_stats, list) and len(p_stats) > idx:
-                p_stats = p_stats[idx]
-
-            # 3-Dart Average ermitteln (unterstützt average, threeDartAvg, ppd * 3 etc.)
-            avg_3dart = 0.0
-            for key in ["average", "threeDartAvg", "avg3Dart", "threeDartAverage", "avg"]:
-                if key in p_stats and p_stats[key] is not None:
-                    avg_3dart = float(p_stats[key])
-                    break
-            if avg_3dart == 0.0:
-                for key in ["ppd", "pointsPerDart"]:
-                    if key in p_stats and p_stats[key] is not None:
-                        val = float(p_stats[key])
-                        avg_3dart = val * 3 if val < 180 else val
-                        break
-
-            # First 9 Average
-            first9_avg = 0.0
-            for key in ["first9Average", "f9Avg", "first9Avg"]:
-                if key in p_stats and p_stats[key] is not None:
-                    val = float(p_stats[key])
-                    first9_avg = val * 3 if val < 180 and "Average" not in key else val
-                    break
-
-            # High Checkout
-            high_co = 0
-            for key in ["highCheckout", "highestCheckout", "checkoutMax", "maxCheckout"]:
-                if key in p_stats and p_stats[key] is not None:
-                    high_co = int(p_stats[key])
-                    break
-
-            # Aufnahmen (100+, 140+, 180)
-            s100 = int(p_stats.get("s100", p_stats.get("scores100s", p_stats.get("100s", 0))) or 0)
-            s140 = int(p_stats.get("s140", p_stats.get("scores140s", p_stats.get("140s", 0))) or 0)
-            s180 = int(p_stats.get("s180", p_stats.get("scores180s", p_stats.get("180s", 0))) or 0)
-            co_pct = float(p_stats.get("checkoutPercent", p_stats.get("checkoutPercentage", 0)) or 0)
-            
-            p_legs_val = p.get("legs", p.get("legsWon", p1_legs if idx == 0 else p2_legs))
-            p_sets_val = p.get("sets", p.get("setsWon", 0))
-
-            cursor.execute(
-                """
-                INSERT OR REPLACE INTO match_stats 
-                (match_id, player_name, legs_won, sets_won, avg_3dart, first9_avg, checkout_pct, high_checkout, s100, s140, s180)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                (match_id, p_name, p_legs_val, p_sets_val, round(avg_3dart, 2), round(first9_avg, 2), 
-                 co_pct, high_co, s100, s140, s180),
-            )
-        conn.commit()
+        submitted = st.form_submit_button("Match speichern")
+        
+        if submitted:
+            if p1_name.strip() == p2_name.strip():
+                st.error("Spieler müssen unterschiedlich sein!")
+            else:
+                match_id = f"manual_{pd.Timestamp.now().strftime('%Y%m%d_%H%M%S')}"
+                winner = p1_name if p1_legs > p2_legs else p2_name
+                created_at = pd.Timestamp.now().isoformat()
+                
+                with sqlite3.connect(DB_PATH) as conn:
+                    cursor = conn.cursor()
+                    # Match speichern
+                    cursor.execute(
+                        "INSERT OR REPLACE INTO matches VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                        (match_id, created_at, "501", "Legs", p1_name, p2_name, p1_legs, p2_legs, winner),
+                    )
+                    # Stats P1
+                    cursor.execute(
+                        """
+                        INSERT OR REPLACE INTO match_stats 
+                        (match_id, player_name, legs_won, sets_won, avg_3dart, first9_avg, checkout_pct, high_checkout, s100, s140, s180)
+                        VALUES (?, ?, ?, 0, ?, 0, 0, ?, 0, 0, ?)
+                        """,
+                        (match_id, p1_name, p1_legs, p1_avg, p1_co, p1_180),
+                    )
+                    # Stats P2
+                    cursor.execute(
+                        """
+                        INSERT OR REPLACE INTO match_stats 
+                        (match_id, player_name, legs_won, sets_won, avg_3dart, first9_avg, checkout_pct, high_checkout, s100, s140, s180)
+                        VALUES (?, ?, ?, 0, ?, 0, 0, ?, 0, 0, ?)
+                        """,
+                        (match_id, p2_name, p2_legs, p2_avg, p2_co, p2_180),
+                    )
+                    conn.commit()
+                st.success("✓ Match erfolgreich gespeichert!")
+                st.rerun()
 
 def get_league_table() -> pd.DataFrame:
     query = """
@@ -184,35 +166,6 @@ def get_league_table() -> pd.DataFrame:
     with sqlite3.connect(DB_PATH) as conn:
         return pd.read_sql_query(query, conn)
 
-# --- STREAMLIT BENUTZEROBERFLÄCHE ---
-init_db()
-
-st.set_page_config(page_title="Autodarts Liga", page_icon="🎯", layout="wide")
-st.title("🎯 Autodarts Liga-Dashboard")
-
-with st.sidebar:
-    st.header("📂 Match JSON Upload")
-    uploaded_file = st.file_uploader("Match-Daten (.json)", type=["json"])
-
-    if uploaded_file is not None:
-        try:
-            match_data = json.load(uploaded_file)
-            
-            with st.expander("Rohdaten anzeigen"):
-                st.json(match_data)
-
-            if isinstance(match_data, list):
-                for m in match_data:
-                    save_match_to_db(m)
-                st.success(f"✓ {len(match_data)} Spiele erfolgreich eingetragen!")
-            elif isinstance(match_data, dict):
-                save_match_to_db(match_data)
-                st.success("✓ Spiel inkl. Stats erfolgreich eingetragen!")
-            
-            st.rerun()
-        except Exception as e:
-            st.error(f"Fehler beim Verarbeiten der Datei: {e}")
-
 st.subheader("📊 Aktuelle Ligatabelle")
 df = get_league_table()
 
@@ -230,4 +183,4 @@ if not df.empty:
     col2.metric("Meiste 180er", f"{most_180s_row['180er']}x", most_180s_row["Spieler"])
     col3.metric("Höchstes Checkout", f"{high_co_row['High Checkout']}", high_co_row["Spieler"])
 else:
-    st.info("Noch keine Spiele in der Datenbank vorhanden. Lade links deine Match-JSON-Datei hoch.")
+    st.info("Noch keine Spiele in der Datenbank vorhanden. Trage links dein erstes Match ein.")
