@@ -195,19 +195,36 @@ with st.sidebar:
                     "Accept": "application/json"
                 }
 
-                # Hier wird der Hauptendpunkt direkt angesprochen
-                url = f"https://api.autodarts.com/matches/{m_id}"
-                
-                res = requests.get(url, headers=headers, timeout=5)
-                
-                if res.status_code == 200:
-                    match_data = res.json()
-                    st.json(match_data) # Debug: Zeigt die Daten kurz an
+                # Vollständige Liste aller bekannten API-Strukturen für Autodarts .com
+                endpoints = [
+                    f"https://api.autodarts.com/as/v1/matches/{m_id}",
+                    f"https://api.autodarts.com/ms/v1/matches/{m_id}",
+                    f"https://api.autodarts.com/api/matches/{m_id}",
+                    f"https://api.autodarts.com/matches/{m_id}",
+                    f"https://gateway.autodarts.com/matches/{m_id}"
+                ]
+
+                match_data = None
+                used_url = ""
+                last_status = 404
+
+                for url in endpoints:
+                    res = requests.get(url, headers=headers, timeout=5)
+                    if res.status_code == 200:
+                        match_data = res.json()
+                        used_url = url
+                        break
+                    else:
+                        last_status = res.status_code
+
+                if match_data:
+                    st.info(f"Erfolg! Daten geladen von: `{used_url}`")
+                    st.json(match_data)
                     save_match_to_db(match_data)
-                    st.success("✓ Spiel inkl. Stats eingetragen!")
+                    st.success("✓ Spiel inkl. Stats erfolgreich eingetragen!")
                     st.rerun()
                 else:
-                    st.error(f"Fehler: Server antwortete mit Statuscode {res.status_code}. Details: {res.text[:150]}")
+                    st.error(f"Match konnte über keinen Endpunkt abgerufen werden. Letzter Status: {last_status}")
 
             except Exception as e:
                 st.error(f"Fehler beim Import: {e}")
