@@ -52,8 +52,8 @@ def save_match_to_db(match_data: dict):
     created_at = match_data.get("createdAt", match_data.get("date", ""))
 
     players = match_data.get("players", [])
-    scores = match_data.get("scores", []) # Manchmal liegen Scores/Legs separat
-    stats_list = match_data.get("stats", match_data.get("statistics", []))
+    # Autodarts speichert Stats oft in einem eigenen Top-Level-Array "stats"
+    global_stats = match_data.get("stats", match_data.get("statistics", []))
 
     p1 = players[0] if len(players) > 0 else {}
     p2 = players[1] if len(players) > 1 else {}
@@ -61,14 +61,8 @@ def save_match_to_db(match_data: dict):
     p1_name = p1.get("name", p1.get("username", "Spieler 1"))
     p2_name = p2.get("name", p2.get("username", "Spieler 2"))
 
-    # Verschiedene mögliche Schlüssel für gewonnene Legs ermitteln
     p1_legs = p1.get("legs", p1.get("legsWon", p1.get("score", 0)))
     p2_legs = p2.get("legs", p2.get("legsWon", p2.get("score", 0)))
-    
-    # Falls scores als separates Array vorliegen
-    if p1_legs == 0 and len(scores) > 0:
-        p1_legs = scores[0].get("legs", scores[0].get("legsWon", 0))
-        p2_legs = scores[1].get("legs", scores[1].get("legsWon", 0)) if len(scores) > 1 else 0
 
     winner = p1_name if p1_legs > p2_legs else p2_name
 
@@ -82,24 +76,48 @@ def save_match_to_db(match_data: dict):
         for idx, p in enumerate(players):
             p_name = p.get("name", p.get("username", f"Spieler {idx+1}"))
             
-            # Stats aus Spieler-Objekt oder separater Stats-Liste holen
+            # Statistiken aus verschiedenen möglichen Quellen im JSON zusammenklauben
             p_stats = p.get("stats", p.get("statistics", {}))
-            if not p_stats and idx < len(stats_list):
-                p_stats = stats_list[idx]
+            if not p_stats and idx < len(global_stats):
+                p_stats = global_stats[idx]
 
-            # Averages (unterstützt PPD, 3-Dart Average, etc.)
-            ppd = p_stats.get("ppd", p_stats.get("threeDartAvg", p_stats.get("average", 0)))
-            # Wenn PPD (Points per Dart) vorliegt, * 3 nehmen. Ansonsten direkt den Wert.
-            avg_3dart = round(ppd * 3, 2) if ppd < 180 and "average" not in p_stats and "threeDartAvg" not in p_stats else round(float(p_stats.get("average", p_stats.get("threeDartAvg", ppd))), 2)
+            # Falls stats eine Liste ist oder direkt dict
+            if isinstance(p_stats, list) and len(p_stats) > idx:
+                p_stats = p_stats[idx]
 
-            f9_ppd = p_stats.get("first9Ppd", p_stats.get("first9Average", 0))
-            first9_avg = round(f9_ppd * 3, 2) if f9_ppd < 180 and "first9Average" not in p_stats else round(float(p_stats.get("first9Average", f9_ppd)), 2)
+            # 3-Dart Average ermitteln (unterstützt average, threeDartAvg, ppd * 3 etc.)
+            avg_3dart = 0.0
+            for key in ["average", "threeDartAvg", "avg3Dart", "threeDartAverage", "avg"]:
+                if key in p_stats and p_stats[key] is not None:
+                    avg_3dart = float(p_stats[key])
+                    break
+            if avg_3dart == 0.0:
+                for key in ["ppd", "pointsPerDart"]:
+                    if key in p_stats and p_stats[key] is not None:
+                        val = float(p_stats[key])
+                        avg_3dart = val * 3 if val < 180 else val
+                        break
 
-            s100 = int(p_stats.get("s100", p_stats.get("scores100s", p_stats.get("100s", 0))))
-            s140 = int(p_stats.get("s140", p_stats.get("scores140s", p_stats.get("140s", 0))))
-            s180 = int(p_stats.get("s180", p_stats.get("scores180s", p_stats.get("180s", 0))))
-            high_co = int(p_stats.get("highCheckout", p_stats.get("highestCheckout", p_stats.get("checkout", 0))))
-            co_pct = float(p_stats.get("checkoutPercent", p_stats.get("checkoutPercentage", 0)))
+            # First 9 Average
+            first9_avg = 0.0
+            for key in ["first9Average", "f9Avg", "first9Avg"]:
+                if key in p_stats and p_stats[key] is not None:
+                    val = float(p_stats[key])
+                    first9_avg = val * 3 if val < 180 and "Average" not in key else val
+                    break
+
+            # High Checkout
+            high_co = 0
+            for key in ["highCheckout", "highestCheckout", "checkoutMax", "maxCheckout"]:
+                if key in p_stats and p_stats[key] is not None:
+                    high_co = int(p_stats[key])
+                    break
+
+            # Aufnahmen (100+, 140+, 180)
+            s100 = int(p_stats.get("s100", p_stats.get("scores100s", p_stats.get("100s", 0))) or 0)
+            s140 = int(p_stats.get("s140", p_stats.get("scores140s", p_stats.get("140s", 0))) or 0)
+            s180 = int(p_stats.get("s180", p_stats.get("scores180s", p_stats.get("180s", 0))) or 0)
+            co_pct = float(p_stats.get("checkoutPercent", p_stats.get("checkoutPercentage", 0)) or 0)
             
             p_legs_val = p.get("legs", p.get("legsWon", p1_legs if idx == 0 else p2_legs))
             p_sets_val = p.get("sets", p.get("setsWon", 0))
@@ -110,7 +128,7 @@ def save_match_to_db(match_data: dict):
                 (match_id, player_name, legs_won, sets_won, avg_3dart, first9_avg, checkout_pct, high_checkout, s100, s140, s180)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
-                (match_id, p_name, p_legs_val, p_sets_val, avg_3dart, first9_avg, 
+                (match_id, p_name, p_legs_val, p_sets_val, round(avg_3dart, 2), round(first9_avg, 2), 
                  co_pct, high_co, s100, s140, s180),
             )
         conn.commit()
@@ -180,13 +198,12 @@ with st.sidebar:
         try:
             match_data = json.load(uploaded_file)
             
-            # Debug-Ansicht, falls man mal reinschauen will
             with st.expander("Rohdaten anzeigen"):
                 st.json(match_data)
 
             if isinstance(match_data, list):
                 for m in match_data:
-                    save_match_update = save_match_to_db(m)
+                    save_match_to_db(m)
                 st.success(f"✓ {len(match_data)} Spiele erfolgreich eingetragen!")
             elif isinstance(match_data, dict):
                 save_match_to_db(match_data)
