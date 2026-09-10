@@ -79,6 +79,9 @@ with st.sidebar:
         
         checkout_val = st.number_input("Checkout-Wert (des Gewinners)", min_value=2, max_value=170, value=40)
         
+        # Freitextfeld für Besonderheiten
+        highlight_note = st.text_input("Besonderheit / Highfinish / Notiz", value="", placeholder="z.B. Highfinish 121, Bullseye, Shortleg...")
+        
         col_180_1, col_180_2 = st.columns(2)
         with col_180_1:
             s180_p1 = st.number_input(f"180er {st.session_state.p1_name}", min_value=0, max_value=3, value=0)
@@ -94,6 +97,7 @@ with st.sidebar:
                 "darts_p2": darts_p2,
                 "loser_rest": loser_rest,
                 "checkout": checkout_val,
+                "notiz": highlight_note,
                 "s180_p1": s180_p1,
                 "s180_p2": s180_p2
             }
