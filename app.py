@@ -41,79 +41,148 @@ def init_db():
         """)
         conn.commit()
 
-def get_existing_players():
-    with sqlite3.connect(DB_PATH) as conn:
-        cursor = conn.cursor()
-        cursor.execute("SELECT DISTINCT player_name FROM match_stats")
-        rows = cursor.fetchall()
-        return [r[0] for r in rows] if rows else ["the unfroggettable", "elkiki"]
-
 # --- STREAMLIT BENUTZEROBERFLÄCHE ---
 init_db()
 
 st.set_page_config(page_title="Autodarts Liga", page_icon="🎯", layout="wide")
 st.title("🎯 Autodarts Liga-Dashboard")
 
-with st.sidebar:
-    st.header("✍️ Match manuell eintragen")
-    st.markdown("Bypass für das JSON-Chaos: Einfach schnell eintragen.")
-    
-    known_players = get_existing_players()
-    
-    with st.form("manual_match_form"):
-        col_p1, col_p2 = st.columns(2)
-        with col_p1:
-            p1_name = st.text_input("Spieler 1", value="the unfroggettable")
-            p1_legs = st.number_input("Legs P1", min_value=0, max_value=20, value=3)
-            p1_avg = st.number_input("Average P1", min_value=0.0, max_value=180.0, value=50.0, step=0.1)
-            p1_co = st.number_input("High CO P1", min_value=0, max_value=170, value=40)
-            p1_180 = st.number_input("180er P1", min_value=0, max_value=10, value=0)
-            
-        with col_p2:
-            p2_name = st.text_input("Spieler 2", value="elkiki")
-            p2_legs = st.number_input("Legs P2", min_value=0, max_value=20, value=1)
-            p2_avg = st.number_input("Average P2", min_value=0.0, max_value=180.0, value=45.0, step=0.1)
-            p2_co = st.number_input("High CO P2", min_value=0, max_value=170, value=0)
-            p2_180 = st.number_input("180er P2", min_value=0, max_value=10, value=0)
+# Session State für Leg-by-Leg Eingabe initialisieren
+if "match_legs" not in st.session_state:
+    st.session_state.match_legs = []
+if "p1_name" not in st.session_state:
+    st.session_state.p1_name = "Spieler 1"
+if "p2_name" not in st.session_state:
+    st.session_state.p2_name = "Spieler 2"
 
-        submitted = st.form_submit_button("Match speichern")
+with st.sidebar:
+    st.header("🎯 Match Leg für Leg erfassen")
+    
+    st.session_state.p1_name = st.text_input("Spieler 1", value=st.session_state.p1_name)
+    st.session_state.p2_name = st.text_input("Spieler 2", value=st.session_state.p2_name)
+    
+    st.markdown("---")
+    st.subheader("Neues Leg hinzufügen")
+    
+    with st.form("leg_form", clear_on_submit=True):
+        leg_winner = st.selectbox("Wer hat das Leg gewonnen?", [st.session_state.p1_name, st.session_state.p2_name])
         
-        if submitted:
-            if p1_name.strip() == p2_name.strip():
-                st.error("Spieler müssen unterschiedlich sein!")
+        col_d1, col_d2 = st.columns(2)
+        with col_d1:
+            darts_p1 = st.number_input(f"Darts {st.session_state.p1_name}", min_value=1, max_value=200, value=18)
+        with col_d2:
+            darts_p2 = st.number_input(f"Darts {st.session_state.p2_name}", min_value=1, max_value=200, value=18)
+            
+        loser_name = st.session_state.p2_name if leg_winner == st.session_state.p1_name else st.session_state.p1_name
+        loser_rest = st.number_input(f"Restpunkte Verlierer ({loser_name})", min_value=0, max_value=500, value=0)
+        
+        checkout_val = st.number_input("Checkout-Wert (des Gewinners)", min_value=2, max_value=170, value=40)
+        
+        col_180_1, col_180_2 = st.columns(2)
+        with col_180_1:
+            s180_p1 = st.number_input(f"180er {st.session_state.p1_name}", min_value=0, max_value=3, value=0)
+        with col_180_2:
+            s180_p2 = st.number_input(f"180er {st.session_state.p2_name}", min_value=0, max_value=3, value=0)
+
+        add_leg_submitted = st.form_submit_button("Leg hinzufügen")
+        
+        if add_leg_submitted:
+            leg_data = {
+                "winner": leg_winner,
+                "darts_p1": darts_p1,
+                "darts_p2": darts_p2,
+                "loser_rest": loser_rest,
+                "checkout": checkout_val,
+                "s180_p1": s180_p1,
+                "s180_p2": s180_p2
+            }
+            st.session_state.match_legs.append(leg_data)
+            st.success(f"Leg {len(st.session_state.match_legs)} hinzugefügt!")
+
+    if st.session_state.match_legs:
+        st.markdown("---")
+        if st.button("🗑️ Alle Legs zurücksetzen"):
+            st.session_state.match_legs = []
+            st.rerun()
+
+# Hauptbereich: Aktuelle Legs des laufenden Matches anzeigen & speichern
+st.subheader("📝 Aktuelles Match (Leg-Übersicht)")
+
+if st.session_state.match_legs:
+    legs_df = pd.DataFrame(st.session_state.match_legs)
+    st.dataframe(legs_df, use_container_width=True, hide_index=True)
+    
+    # Berechne Live-Zwischenstand
+    p1_legs_won = sum(1 for l in st.session_state.match_legs if l["winner"] == st.session_state.p1_name)
+    p2_legs_won = sum(1 for l in st.session_state.match_legs if l["winner"] == st.session_state.p2_name)
+    
+    st.info(f"Zwischenstand: **{st.session_state.p1_name} {p1_legs_won} : {p2_legs_won} {st.session_state.p2_name}**")
+    
+    if st.button("💾 Gesamtes Match in Datenbank speichern", type="primary"):
+        # Statistiken über alle Legs aggregieren
+        p1_total_darts = sum(l["darts_p1"] for l in st.session_state.match_legs)
+        p2_total_darts = sum(l["darts_p2"] for l in st.session_state.match_legs)
+        
+        p1_total_points = 0
+        p2_total_points = 0
+        
+        p1_high_co = 0
+        p2_high_co = 0
+        
+        p1_180s = sum(l["s180_p1"] for l in st.session_state.match_legs)
+        p2_180s = sum(l["s180_p2"] for l in st.session_state.match_legs)
+        
+        for l in st.session_state.match_legs:
+            if l["winner"] == st.session_state.p1_name:
+                p1_total_points += 501
+                p2_total_points += (501 - l["loser_rest"])
+                if l["checkout"] > p1_high_co:
+                    p1_high_co = l["checkout"]
             else:
-                match_id = f"manual_{pd.Timestamp.now().strftime('%Y%m%d_%H%M%S')}"
-                winner = p1_name if p1_legs > p2_legs else p2_name
-                created_at = pd.Timestamp.now().isoformat()
-                
-                with sqlite3.connect(DB_PATH) as conn:
-                    cursor = conn.cursor()
-                    # Match speichern
-                    cursor.execute(
-                        "INSERT OR REPLACE INTO matches VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                        (match_id, created_at, "501", "Legs", p1_name, p2_name, p1_legs, p2_legs, winner),
-                    )
-                    # Stats P1
-                    cursor.execute(
-                        """
-                        INSERT OR REPLACE INTO match_stats 
-                        (match_id, player_name, legs_won, sets_won, avg_3dart, first9_avg, checkout_pct, high_checkout, s100, s140, s180)
-                        VALUES (?, ?, ?, 0, ?, 0, 0, ?, 0, 0, ?)
-                        """,
-                        (match_id, p1_name, p1_legs, p1_avg, p1_co, p1_180),
-                    )
-                    # Stats P2
-                    cursor.execute(
-                        """
-                        INSERT OR REPLACE INTO match_stats 
-                        (match_id, player_name, legs_won, sets_won, avg_3dart, first9_avg, checkout_pct, high_checkout, s100, s140, s180)
-                        VALUES (?, ?, ?, 0, ?, 0, 0, ?, 0, 0, ?)
-                        """,
-                        (match_id, p2_name, p2_legs, p2_avg, p2_co, p2_180),
-                    )
-                    conn.commit()
-                st.success("✓ Match erfolgreich gespeichert!")
-                st.rerun()
+                p2_total_points += 501
+                p1_total_points += (501 - l["loser_rest"])
+                if l["checkout"] > p2_high_co:
+                    p2_high_co = l["checkout"]
+                    
+        p1_avg = round((p1_total_points / p1_total_darts) * 3, 2) if p1_total_darts > 0 else 0.0
+        p2_avg = round((p2_total_points / p2_total_darts) * 3, 2) if p2_total_darts > 0 else 0.0
+        
+        match_id = f"match_{pd.Timestamp.now().strftime('%Y%m%d_%H%M%S')}"
+        created_at = pd.Timestamp.now().isoformat()
+        match_winner = st.session_state.p1_name if p1_legs_won > p2_legs_won else st.session_state.p2_name
+        
+        with sqlite3.connect(DB_PATH) as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                "INSERT OR REPLACE INTO matches VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (match_id, created_at, "501", "Legs", st.session_state.p1_name, st.session_state.p2_name, p1_legs_won, p2_legs_won, match_winner),
+            )
+            cursor.execute(
+                """
+                INSERT OR REPLACE INTO match_stats 
+                (match_id, player_name, legs_won, sets_won, avg_3dart, first9_avg, checkout_pct, high_checkout, s100, s140, s180)
+                VALUES (?, ?, ?, 0, ?, 0, 0, ?, 0, 0, ?)
+                """,
+                (match_id, st.session_state.p1_name, p1_legs_won, p1_avg, p1_high_co, p1_180s),
+            )
+            cursor.execute(
+                """
+                INSERT OR REPLACE INTO match_stats 
+                (match_id, player_name, legs_won, sets_won, avg_3dart, first9_avg, checkout_pct, high_checkout, s100, s140, s180)
+                VALUES (?, ?, ?, 0, ?, 0, 0, ?, 0, 0, ?)
+                """,
+                (match_id, st.session_state.p2_name, p2_legs_won, p2_avg, p2_high_co, p2_180s),
+            )
+            conn.commit()
+            
+        st.success("✓ Match erfolgreich in der Ligatabelle gespeichert!")
+        st.session_state.match_legs = []
+        st.rerun()
+else:
+    st.info("Noch keine Legs für das aktuelle Match erfasst. Nutze die Sidebar, um Leg für Leg hinzuzufügen.")
+
+st.markdown("---")
+st.subheader("📊 Aktuelle Ligatabelle")
 
 def get_league_table() -> pd.DataFrame:
     query = """
@@ -166,7 +235,6 @@ def get_league_table() -> pd.DataFrame:
     with sqlite3.connect(DB_PATH) as conn:
         return pd.read_sql_query(query, conn)
 
-st.subheader("📊 Aktuelle Ligatabelle")
 df = get_league_table()
 
 if not df.empty:
@@ -183,4 +251,4 @@ if not df.empty:
     col2.metric("Meiste 180er", f"{most_180s_row['180er']}x", most_180s_row["Spieler"])
     col3.metric("Höchstes Checkout", f"{high_co_row['High Checkout']}", high_co_row["Spieler"])
 else:
-    st.info("Noch keine Spiele in der Datenbank vorhanden. Trage links dein erstes Match ein.")
+    st.info("Noch keine Spiele in der Datenbank vorhanden.")
