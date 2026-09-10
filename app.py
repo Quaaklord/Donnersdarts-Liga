@@ -46,14 +46,18 @@ def init_db():
         conn.commit()
 
 
+import requests
+
+
 def get_autodarts_token(email: str, password: str) -> str:
-    """Holt ein Bearer Token direkt über die aktuelle Autodarts Auth API."""
-    token_url = "https://api.autodarts.com/auth/v1/token"
+    """Holt ein Bearer Token vom offiziellen Autodarts Keycloak-Server."""
+    # Das ist die finale Keycloak Token-URL für Autodarts
+    token_url = "https://auth.autodarts.io/realms/autodarts/protocol/openid-connect/token"
 
     payload = {
         "client_id": "autodarts-app",
         "grant_type": "password",
-        "username": email,
+        "username": email.strip(),
         "password": password,
     }
     headers = {
@@ -64,25 +68,28 @@ def get_autodarts_token(email: str, password: str) -> str:
     }
 
     try:
-        res = requests.post(token_url, data=payload, headers=headers, timeout=15)
+        # data=payload sorgt in requests für das korrekte URL-Encoding
+        res = requests.post(
+            token_url, data=payload, headers=headers, timeout=15
+        )
+
         if res.status_code == 200:
-            data = res.json()
-            return data.get("access_token") or data.get("token")
+            return res.json().get("access_token")
         elif res.status_code in (400, 401):
             raise Exception(
-                "Anmeldung fehlgeschlagen: E-Mail oder Passwort ist falsch."
+                "E-Mail oder Passwort ist falsch (oder Social-Login wie Google/Discord wird genutzt)."
             )
         else:
             raise Exception(
-                f"Server antwortete mit Statuscode {res.status_code}."
+                f"Server-Fehler {res.status_code}: {res.text[:100]}"
             )
+
     except requests.exceptions.Timeout:
         raise Exception(
-            "Zeitüberschreitung (Timeout) beim Verbindungsaufbau zu Autodarts."
+            "Zeitüberschreitung beim Verbindungsaufbau zu Autodarts."
         )
     except Exception as e:
         raise Exception(f"Login-Fehler: {e}")
-
 def extract_match_id(url_or_id: str) -> str:
     """Extrahiert die Match-UUID aus einem Autodarts-Link (.io / .com) oder Text."""
     uuid_pattern = (
