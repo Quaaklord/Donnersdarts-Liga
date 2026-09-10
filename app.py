@@ -59,20 +59,50 @@ import requests
 
 
 def get_autodarts_token(email: str, password: str) -> str:
-    """Holt ein Access-Token über den echten Autodarts Auth0-Endpunkt."""
-    # Auth0 Token-Endpunkt von Autodarts
-    token_url = "https://autodarts.eu.auth0.com/oauth/token"
+    """Versucht die Authentifizierung erst über den primären Autodarts OIDC-Endpunkt,
 
-    payload = {
+    dann als Fallback über Auth0.
+    """
+    email_clean = email.strip()
+
+    # --- Weg 1: Autodarts Keycloak / OIDC (Aktueller Standard) ---
+    oidc_url = (
+        "https://auth.autodarts.io/realms/autodarts/protocol/openid-connect/token"
+    )
+    oidc_payload = {
+        "client_id": "autodarts-app",
         "grant_type": "password",
-        "username": email.strip(),
+        "username": email_clean,
         "password": password,
-        "client_id": "L8m43i9K0f76Z638D7KjWwY1z3G269l4",  # Öffentliche Client-ID der Autodarts Web-App
-        "audience": "https://api.autodarts.io",  # Auth0 Audience für Autodarts API
         "scope": "openid profile email",
     }
+    headers_form = {
+        "Content-Type": "application/x-www-form-urlencoded",
+        "User-Agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+        ),
+    }
 
-    headers = {
+    try:
+        res = requests.post(
+            oidc_url, data=oidc_payload, headers=headers_form, timeout=10
+        )
+        if res.status_code == 200:
+            return res.json().get("access_token")
+    except Exception:
+        pass  # Bei Fehlschlag Fallback auf Auth0 probieren
+
+    # --- Weg 2: Auth0 Direct Grant (Fallback) ---
+    auth0_url = "https://autodarts.eu.auth0.com/oauth/token"
+    auth0_payload = {
+        "grant_type": "password",
+        "username": email_clean,
+        "password": password,
+        "client_id": "L8m43i9K0f76Z638D7KjWwY1z3G269l4",
+        "audience": "https://api.autodarts.io",
+        "scope": "openid profile email",
+    }
+    headers_json = {
         "Content-Type": "application/json",
         "User-Agent": (
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
@@ -80,28 +110,29 @@ def get_autodarts_token(email: str, password: str) -> str:
     }
 
     try:
-        # Auth0 erwartet JSON als Body (json=payload)
         res = requests.post(
-            token_url, json=payload, headers=headers, timeout=15
+            auth0_url, json=auth0_payload, headers=headers_json, timeout=10
         )
-
         if res.status_code == 200:
-            data = res.json()
-            return data.get("access_token")
+            return res.json().get("access_token")
         elif res.status_code in (400, 401, 403):
             raise Exception(
-                "Anmeldung abgelehnt: E-Mail oder Passwort falsch (oder Login via Google/Discord genutzt)."
+                "Anmeldung abgelehnt. Bitte überprüfe E-Mail und Passwort. "
+                "Falls du dich sonst per Google/Discord anmeldest, erstelle bitte auf autodarts.com über 'Passwort vergessen' ein Kennwort."
             )
         else:
             raise Exception(
-                f"Auth0 Status {res.status_code}: {res.text[:100]}"
+                f"Server-Antwort {res.status_code}: {res.text[:100]}"
             )
-
     except requests.exceptions.Timeout:
-        raise Exception("Zeitüberschreitung beim Verbindungsaufbau zu Auth0.")
+        raise Exception(
+            "Zeitüberschreitung beim Verbindungsaufbau zu Autodarts."
+        )
     except Exception as e:
         raise Exception(f"Login-Fehler: {e}")
-    
+
+
+
 def extract_match_id(url_or_id: str) -> str:
     """Extrahiert die Match-UUID aus einem Autodarts-Link (.io / .com) oder Text."""
     uuid_pattern = (
