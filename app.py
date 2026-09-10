@@ -52,20 +52,20 @@ import requests
 import requests
 
 
+import requests
+
+
 def get_autodarts_token(email: str, password: str) -> str:
-    """Holt ein Bearer Token von den aktuellen .com-Endpunkten von Autodarts."""
-    # Priorisiere die neuen .com-Subdomains von Autodarts
-    token_urls = [
-        "https://auth.autodarts.com/realms/autodarts/protocol/openid-connect/token",
-        "https://login.autodarts.com/realms/autodarts/protocol/openid-connect/token",
-        "https://api.autodarts.com/ms/auth/v1/login",  # Alternative API-Route
-    ]
+    """Holt ein Bearer Token über den sauberen .com-Endpunkt von Autodarts."""
+    # Offizieller OAuth2 Token-Endpunkt auf .com
+    token_url = "https://auth.autodarts.com/realms/autodarts/protocol/openid-connect/token"
 
     payload = {
         "client_id": "autodarts-app",
         "grant_type": "password",
         "username": email.strip(),
         "password": password,
+        "scope": "openid profile email",
     }
 
     headers = {
@@ -75,40 +75,29 @@ def get_autodarts_token(email: str, password: str) -> str:
         ),
     }
 
-    last_error = ""
+    try:
+        res = requests.post(
+            token_url, data=payload, headers=headers, timeout=15
+        )
 
-    for url in token_urls:
-        try:
-            res = requests.post(url, data=payload, headers=headers, timeout=15)
+        if res.status_code == 200:
+            data = res.json()
+            return data.get("access_token")
 
-            if res.status_code == 200:
-                data = res.json()
-                # Rückgabe für Keycloak OAuth (access_token) oder Auth API (token)
-                return (
-                    data.get("access_token")
-                    or data.get("token")
-                    or data.get("accessToken")
-                )
+        elif res.status_code in (400, 401):
+            raise Exception(
+                "Anmeldung fehlgeschlagen: E-Mail oder Passwort falsch."
+            )
 
-            elif res.status_code in (400, 401):
-                raise Exception(
-                    "Anmeldung fehlgeschlagen: E-Mail oder Passwort ist falsch."
-                )
+        else:
+            raise Exception(
+                f"Server-Antwort {res.status_code}: {res.text[:100]}"
+            )
 
-            else:
-                last_error = (
-                    f"HTTP {res.status_code} bei {url}: {res.text[:80]}"
-                )
-
-        except requests.exceptions.RequestException as e:
-            last_error = f"Verbindungsfehler bei {url}: {str(e)}"
-            continue
-        except Exception as e:
-            raise e
-
-    raise Exception(
-        f"Login fehlgeschlagen. Letzter Fehler: {last_error}"
-    )
+    except requests.exceptions.Timeout:
+        raise Exception("Zeitüberschreitung beim Verbindungsaufbau.")
+    except Exception as e:
+        raise Exception(f"Login-Fehler: {e}")
     
 def extract_match_id(url_or_id: str) -> str:
     """Extrahiert die Match-UUID aus einem Autodarts-Link (.io / .com) oder Text."""
