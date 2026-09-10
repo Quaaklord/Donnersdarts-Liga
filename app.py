@@ -195,13 +195,12 @@ with st.sidebar:
                     "Accept": "application/json"
                 }
 
-                # Vollständige Liste aller bekannten API-Strukturen für Autodarts .com
+                # Nur noch valide api.autodarts.com Endpunkte prüfen
                 endpoints = [
+                    f"https://api.autodarts.com/as/v0/matches/{m_id}",
                     f"https://api.autodarts.com/as/v1/matches/{m_id}",
                     f"https://api.autodarts.com/ms/v1/matches/{m_id}",
-                    f"https://api.autodarts.com/api/matches/{m_id}",
-                    f"https://api.autodarts.com/matches/{m_id}",
-                    f"https://gateway.autodarts.com/matches/{m_id}"
+                    f"https://api.autodarts.com/matches/{m_id}"
                 ]
 
                 match_data = None
