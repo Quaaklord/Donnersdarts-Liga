@@ -60,8 +60,12 @@ def save_match_to_db(match_data: dict):
     p1 = players[0] if len(players) > 0 else {}
     p2 = players[1] if len(players) > 1 else {}
 
-    p1_name, p1_legs = p1.get("name", "Spieler 1"), p1.get("legs", 0)
-    p2_name, p2_legs = p2.get("name", "Spieler 2"), p2.get("legs", 0)
+    # Autodarts nennt gewonnene Legs manchmal 'legs' und manchmal 'score'
+    p1_name = p1.get("name", "Spieler 1")
+    p1_legs = p1.get("legs", p1.get("score", 0))
+    
+    p2_name = p2.get("name", "Spieler 2")
+    p2_legs = p2.get("legs", p2.get("score", 0))
 
     winner = p1_name if p1_legs > p2_legs else p2_name
     stats_list = match_data.get("stats", [])
@@ -83,15 +87,21 @@ def save_match_to_db(match_data: dict):
             f9_ppd = p_stats.get("first9Ppd", 0)
             first9_avg = round(f9_ppd * 3, 2) if f9_ppd else 0.0
 
+            # Fallbacks für unterschiedliche JSON-Benennungen
+            s100 = int(p_stats.get("s100", p_stats.get("scores100s", 0)))
+            s140 = int(p_stats.get("s140", p_stats.get("scores140s", 0)))
+            s180 = int(p_stats.get("s180", p_stats.get("scores180s", 0)))
+            high_co = int(p_stats.get("highCheckout", p_stats.get("highestCheckout", 0)))
+            co_pct = float(p_stats.get("checkoutPercent", 0))
+
             cursor.execute(
                 """
                 INSERT OR REPLACE INTO match_stats 
                 (match_id, player_name, legs_won, sets_won, avg_3dart, first9_avg, checkout_pct, high_checkout, s100, s140, s180)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
-                (match_id, p_name, p.get("legs", 0), p.get("sets", 0), avg_3dart, first9_avg, 
-                 float(p_stats.get("checkoutPercent", 0)), int(p_stats.get("highCheckout", 0)), 
-                 int(p_stats.get("s100", 0)), int(p_stats.get("s140", 0)), int(p_stats.get("s180", 0))),
+                (match_id, p_name, p.get("legs", p.get("score", 0)), p.get("sets", 0), avg_3dart, first9_avg, 
+                 co_pct, high_co, s100, s140, s180),
             )
         conn.commit()
 
@@ -175,10 +185,12 @@ with st.sidebar:
                     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
                 }
 
-                # Ausschliesslich .com Endpunkte!
+                # WICHTIG: Wir fragen zuerst den Analytics-Service (as) ab! 
+                # Nur dieser liefert die vollständigen Statistiken.
                 endpoints = [
-                    f"https://api.autodarts.com/ms/v1/matches/{m_id}",
-                    f"https://api.autodarts.com/as/v0/matches/{m_id}"
+                    f"https://api.autodarts.com/as/v1/matches/{m_id}",
+                    f"https://api.autodarts.com/as/v0/matches/{m_id}",
+                    f"https://api.autodarts.com/ms/v1/matches/{m_id}"
                 ]
 
                 match_data = None
@@ -194,7 +206,7 @@ with st.sidebar:
 
                 if match_data:
                     save_match_to_db(match_data)
-                    st.success("✓ Spiel erfolgreich eingetragen!")
+                    st.success("✓ Spiel inkl. Statistiken erfolgreich eingetragen!")
                     st.rerun()
                 else:
                     if last_status == 401:
@@ -202,7 +214,7 @@ with st.sidebar:
                     else:
                         st.error(f"Match konnte nicht abgerufen werden (Status {last_status}).")
             except Exception as e:
-                st.error(f"Fehler: {e}")
+                st.error(f"Fehler beim Import: {e}")
 
 st.subheader("📊 Aktuelle Ligatabelle")
 df = get_league_table()
